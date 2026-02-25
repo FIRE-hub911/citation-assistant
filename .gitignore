@@ -1,0 +1,12 @@
+# 敏感配置 - 不要提交真实的 API Key
+.env
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 临时文件
+*.log
+.DS_Store
