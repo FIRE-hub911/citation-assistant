@@ -39,6 +39,12 @@ description: |
 
 **无 API Key 时**：技能仍可使用匿名模式（速率限制 10 次/分钟）。
 
+**匿名模式使用建议**：
+- 每次查询间隔约 6 秒，请耐心等待
+- 如遇到速率限制，会自动 fallback 到 CrossRef API
+- CrossRef 无速率限制，但缺少作者 h-index 等高级信息
+- 强烈建议配置 API Key 以获得最佳体验
+
 ### Python 依赖
 
 ```bash
@@ -98,18 +104,31 @@ pip install python-dotenv requests impact_factor
 使用 `scripts/s2_search.py` 调用 API：
 
 ```python
-# API Key 已配置在脚本中
-from scripts.s2_search import search_papers, get_author_info, batch_get_authors
+# 优先使用带 fallback 的搜索函数
+from scripts.s2_search import search_with_fallback, search_papers, get_author_info, batch_get_authors
 
-results = search_papers(
+# 推荐：带自动 fallback 的搜索
+results = search_with_fallback(
     query=semantic_query,
     limit=20,
     year_range="2018-"  # 可选：限制年份
 )
 
+# 或者直接使用 S2 API（无 fallback）
+results = search_papers(
+    query=semantic_query,
+    limit=20,
+    year_range="2018-"
+)
+
 # 获取作者信息（h-index, 论文数等）
 author_info = batch_get_authors(author_ids, fields=["name", "hIndex", "citationCount", "paperCount"])
 ```
+
+**重要**：优先使用 `search_with_fallback()` 而非 `search_papers()`，它会自动处理：
+- 速率限制（429 错误）时自动重试
+- S2 API 不可用时自动 fallback 到 CrossRef
+- 返回结果中包含 `source` 字段标识数据来源
 
 优先使用Semantic Scholar API而非tavily/web search来检索相关文献
 

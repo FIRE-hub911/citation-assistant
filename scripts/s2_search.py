@@ -5,6 +5,7 @@ Semantic Scholar API 搜索封装
 """
 
 import os
+import time
 import requests
 import json
 from typing import Optional, List, Dict, Any
@@ -21,6 +22,66 @@ load_dotenv(env_path)
 # 用户可通过 export S2_API_KEY=your_key 或 .env 文件配置
 API_KEY: Optional[str] = os.environ.get("S2_API_KEY")
 BASE_URL = "https://api.semanticscholar.org/graph/v1"
+
+# 速率限制配置
+ANONYMOUS_DELAY = 6.0  # 匿名模式：6秒间隔（10次/分钟）
+AUTHED_DELAY = 0.6     # 有 Key：0.6秒间隔（100次/分钟）
+MAX_RETRIES = 3        # 最大重试次数
+
+# 全局请求时间戳，用于限流
+_last_request_time = 0.0
+
+
+def _rate_limit():
+    """速率限制：确保请求间隔符合 API 限制"""
+    global _last_request_time
+
+    delay = AUTHED_DELAY if API_KEY else ANONYMOUS_DELAY
+    elapsed = time.time() - _last_request_time
+
+    if elapsed < delay:
+        time.sleep(delay - elapsed)
+
+    _last_request_time = time.time()
+
+
+def _make_request(url: str, params: Dict = None, headers: Dict = None, timeout: int = 30) -> Optional[Dict]:
+    """
+    带重试机制的请求函数
+
+    Args:
+        url: 请求 URL
+        params: 查询参数
+        headers: 请求头
+        timeout: 超时时间
+
+    Returns:
+        JSON 响应或 None
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            _rate_limit()
+            response = requests.get(url, params=params, headers=headers, timeout=timeout)
+
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 429:
+                # 速率限制，等待后重试
+                wait_time = 60 if not API_KEY else 10
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    continue
+                return {"error": f"Rate limit exceeded after {MAX_RETRIES} retries", "data": None}
+            else:
+                return {"error": f"HTTP {response.status_code}: {response.text}", "data": None}
+
+        except requests.exceptions.RequestException as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)  # 指数退避
+                continue
+            return {"error": str(e), "data": None}
+
+    return {"error": "Max retries exceeded", "data": None}
 
 
 def check_api_key() -> tuple[bool, str]:
@@ -95,14 +156,23 @@ def search_papers(
     if venue:
         params["venue"] = venue
 
-    headers = {"x-api-key": API_KEY}
+    headers = {"x-api-key": API_KEY} if API_KEY else {}
 
-    try:
-        response = requests.get(url, params=params, headers=headers, timeout=30)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        return {"error": str(e), "data": None}
+    result = _make_request(url, params=params, headers=headers)
+
+    if result is None:
+        return {"error": "Request failed", "data": None}
+
+    # 确保返回格式一致
+    if "error" in result and result.get("data") is None:
+        return result
+
+    # 标准化返回格式
+    if "data" not in result:
+        # S2 API 直接返回 {"data": [...]} 或 {"data": [...], "total": ...}
+        pass
+
+    return result
 
 
 def get_paper_details(
@@ -337,3 +407,84 @@ if __name__ == "__main__":
         limit=5
     )
     print(json.dumps(results, indent=2, ensure_ascii=False))
+
+
+# ============== Fallback 搜索函数 ==============
+# 当 Semantic Scholar API 不可用时使用
+
+def search_crossref(query: str, limit: int = 20) -> Dict[str, Any]:
+    """
+    CrossRef API 搜索（免费，无速率限制）
+
+    作为 Semantic Scholar 的 fallback
+
+    Args:
+        query: 搜索查询
+        limit: 返回结果数量
+
+    Returns:
+        标准化的结果字典
+    """
+    url = "https://api.crossref.org/works"
+    params = {
+        "query": query,
+        "rows": limit,
+        "select": "DOI,title,author,published-print,published-online,container-title,is-referenced-by-count"
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        # 标准化为 S2 格式
+        papers = []
+        for item in data.get("message", {}).get("items", []):
+            paper = {
+                "title": item.get("title", [""])[0] if item.get("title") else "",
+                "year": (item.get("published-print") or item.get("published-online") or {}).get("date-parts", [[None]])[0][0],
+                "venue": item.get("container-title", [""])[0] if item.get("container-title") else "",
+                "citationCount": item.get("is-referenced-by-count", 0),
+                "externalIds": {"DOI": item.get("DOI")},
+                "authors": [{"name": a.get("given", "") + " " + a.get("family", "")} for a in item.get("author", [])[:5]]
+            }
+            papers.append(paper)
+
+        return {"data": papers, "total": len(papers), "source": "crossref"}
+
+    except Exception as e:
+        return {"error": str(e), "data": None}
+
+
+def search_with_fallback(query: str, limit: int = 20, **kwargs) -> Dict[str, Any]:
+    """
+    带 fallback 的搜索：优先 S2，失败则用 CrossRef
+
+    Args:
+        query: 搜索查询
+        limit: 返回结果数量
+        **kwargs: 其他参数传递给 search_papers
+
+    Returns:
+        搜索结果
+    """
+    # 1. 尝试 Semantic Scholar
+    result = search_papers(query, limit=limit, **kwargs)
+
+    if result.get("data") and not result.get("error"):
+        result["source"] = "semantic_scholar"
+        return result
+
+    # 2. Fallback 到 CrossRef
+    print("⚠️ Semantic Scholar API 不可用，使用 CrossRef fallback...")
+    crossref_result = search_crossref(query, limit=limit)
+
+    if crossref_result.get("data"):
+        return crossref_result
+
+    # 3. 两个都失败
+    return {
+        "error": "Both Semantic Scholar and CrossRef failed",
+        "data": None,
+        "suggestion": "请配置 S2_API_KEY 以获得更稳定的体验。获取方式：https://www.semanticscholar.org/product/api"
+    }

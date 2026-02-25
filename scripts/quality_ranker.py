@@ -300,22 +300,23 @@ def rank_papers(
     for paper in papers:
         metrics = QualityMetrics()
 
-        # 基础信息
-        metrics.title = paper.get('title', '')
+        # 基础信息 - 使用 or {} 确保 paper 不是 None
+        paper = paper or {}
+        metrics.title = paper.get('title', '') or ''
         metrics.year = paper.get('year') or 0
 
-        # venue/journal 可能是 dict 或 string
-        venue_val = paper.get('venue', '')
+        # venue/journal 可能是 dict 或 string 或 None
+        venue_val = paper.get('venue') or ''
         if isinstance(venue_val, dict):
-            metrics.venue = venue_val.get('name', '')
+            metrics.venue = venue_val.get('name', '') or ''
         else:
-            metrics.venue = venue_val or ''
+            metrics.venue = str(venue_val) if venue_val else ''
 
-        journal_val = paper.get('journal', '')
+        journal_val = paper.get('journal') or ''
         if isinstance(journal_val, dict):
-            metrics.journal = journal_val.get('name', '')
+            metrics.journal = journal_val.get('name', '') or ''
         else:
-            metrics.journal = journal_val or ''
+            metrics.journal = str(journal_val) if journal_val else ''
 
         # Semantic Scholar 指标
         metrics.citation_count = paper.get('citationCount', 0)
@@ -331,7 +332,7 @@ def rank_papers(
             metrics.ccf_type = ccf_info.get('type')
 
         # 判断是否为"纯 arXiv"（无正式发表版本）
-        ext_ids = paper.get('externalIds', {})
+        ext_ids = paper.get('externalIds') or {}
         venue_lower = (metrics.venue or '').lower()
         journal_lower = (metrics.journal or '').lower()
 
