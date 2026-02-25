@@ -159,6 +159,21 @@ author_info = batch_get_authors(author_ids, fields=["name", "hIndex", "citationC
 
 使用 `scripts/quality_ranker.py` 进行评估。详见 `references/quality_metrics.md`。
 
+**重要：使用便捷函数**（避免动态生成代码导致错误）：
+
+```python
+from scripts.quality_ranker import get_paper_quality_report, batch_quality_report
+
+# 单篇论文质量报告
+report = get_paper_quality_report(paper_dict)
+# 返回: {"title", "year", "venue", "citation_count", "ccf_rank", "jcr_quartile",
+#        "cas_quartile", "impact_factor", "quality_score", ...}
+
+# 批量论文质量报告（自动排序）
+reports = batch_quality_report(papers_list, top_n=5)
+# 返回排序后的前5篇报告列表
+```
+
 **评分维度**：
 1. **CCF 分级** (A=100, B=70, C=40) - 计算机/CS 领域
 2. **JCR 分区** (Q1=80, Q2=60, Q3=40, Q4=20)
@@ -337,10 +352,29 @@ Vision-language models now generate radiologist-quality reports [CITE]."
 
 | 脚本 | 功能 | 主要函数 |
 |------|------|----------|
-| `s2_search.py` | Semantic Scholar API | `search_papers()`, `get_paper_details()`, `batch_get_authors()`, `get_author_info()` |
+| `s2_search.py` | Semantic Scholar API | `search_with_fallback()`, `search_papers()`, `get_author_info()`, `batch_get_authors()` |
 | `doi_to_bibtex.py` | DOI 转 BibTeX | `doi_to_bibtex()`, `generate_cite_key()` |
-| `quality_ranker.py` | 质量评估排序 | `rank_papers()`, `calculate_quality_score()` |
+| `quality_ranker.py` | 质量评估排序 | `get_paper_quality_report()`, `batch_quality_report()`, `rank_papers()` |
 | `tex_parser.py` | LaTeX 占位符解析 | `extract_cite_placeholders()` |
+
+**推荐调用模式**：
+```python
+from scripts.s2_search import search_with_fallback
+from scripts.quality_ranker import batch_quality_report
+from scripts.doi_to_bibtex import doi_to_bibtex
+
+# 1. 搜索
+results = search_with_fallback(query, limit=20)
+papers = results.get("data", [])
+
+# 2. 质量评估（自动排序）
+reports = batch_quality_report(papers, top_n=3)
+
+# 3. 获取 BibTeX
+for r in reports:
+    if r.get("doi"):
+        bibtex = doi_to_bibtex(r["doi"])
+```
 
 ## 注意事项
 

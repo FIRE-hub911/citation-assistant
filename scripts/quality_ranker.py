@@ -391,3 +391,84 @@ if __name__ == "__main__":
 
     result = ccf.lookup_by_venue("ICML")
     print(f"ICML CCF: {result}")
+
+
+# ============== 便捷函数 ==============
+# 提供给 Claude 直接调用，避免动态生成复杂代码
+
+def get_paper_quality_report(paper: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    获取单篇论文的完整质量报告（便捷函数）
+
+    Args:
+        paper: 论文信息字典（来自 Semantic Scholar API）
+
+    Returns:
+        包含所有质量指标的字典，可直接用于生成报告
+    """
+    ccf_lookup = CCFLookup()
+    if_lookup = ImpactFactorLookup()
+
+    results = rank_papers([paper], ccf_lookup, if_lookup)
+    if not results:
+        return {"error": "Failed to evaluate paper"}
+
+    _, metrics = results[0]
+
+    return {
+        "title": metrics.title,
+        "year": metrics.year,
+        "venue": metrics.venue,
+        "journal": metrics.journal,
+        "citation_count": metrics.citation_count,
+        "ccf_rank": metrics.ccf_rank,
+        "ccf_field": metrics.ccf_field,
+        "jcr_quartile": metrics.jcr_quartile,
+        "cas_quartile": metrics.cas_quartile,
+        "impact_factor": metrics.impact_factor,
+        "first_author": {
+            "name": metrics.first_author_name,
+            "h_index": metrics.first_author_h_index
+        } if metrics.first_author_name else None,
+        "corresponding_author": {
+            "name": metrics.corresponding_author_name,
+            "h_index": metrics.corresponding_author_h_index
+        } if metrics.corresponding_author_name else None,
+        "is_arxiv": metrics.is_arxiv,
+        "quality_score": metrics.score
+    }
+
+
+def batch_quality_report(papers: List[Dict[str, Any]], top_n: int = 5) -> List[Dict[str, Any]]:
+    """
+    批量获取论文质量报告（便捷函数）
+
+    Args:
+        papers: 论文列表（来自 Semantic Scholar API）
+        top_n: 返回前 N 篇
+
+    Returns:
+        排序后的质量报告列表
+    """
+    ccf_lookup = CCFLookup()
+    if_lookup = ImpactFactorLookup()
+
+    results = rank_papers(papers, ccf_lookup, if_lookup)
+
+    reports = []
+    for paper, metrics in results[:top_n]:
+        reports.append({
+            "title": metrics.title,
+            "year": metrics.year,
+            "venue": metrics.venue or metrics.journal,
+            "citation_count": metrics.citation_count,
+            "ccf_rank": metrics.ccf_rank or "N/A",
+            "jcr_quartile": metrics.jcr_quartile or "N/A",
+            "cas_quartile": metrics.cas_quartile or "N/A",
+            "impact_factor": metrics.impact_factor,
+            "quality_score": metrics.score,
+            "doi": paper.get("externalIds", {}).get("DOI"),
+            "url": paper.get("url")
+        })
+
+    return reports
