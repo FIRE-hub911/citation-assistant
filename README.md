@@ -189,9 +189,9 @@ DOI: 10.1038/s41591-020-0792-9
 帮我找 2020 年以后关于 remote photoplethysmography (rPPG) 的论文，要高质量的，列出 10 篇推荐。
 ```
 
-### 示例 6: 综合工作流（粘贴论文段落)
-```
-帮我检查这段论文的引用是否合适，如果有更好的推荐请告诉我
+### 示例 6: 综合工作流（粘贴论文段落）
+
+帮我检查这段论文的引用是否合适，如果有更好的推荐请告诉我：
 
 ```
 Remote photoplethysmography (rPPG) enables non-contact heart rate estimation from facial videos [1]. Traditional methods like CHROM and POS have been widely used [2], while recent deep learning approaches have shown superior performance [3].
